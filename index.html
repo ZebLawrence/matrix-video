@@ -40,6 +40,8 @@
   const FPS = 30;              // classic rain reads better slightly below 60fps
   const FRAME_MS = 1000 / FPS;
   const TRAIL_LENGTH = 88;  // default number of rows of visible trail before full fade
+  const MIN_SPEED = 0.6;    // slowest fall, in rows per frame
+  const MAX_SPEED = 1.5;    // fastest fall, in rows per frame
 
   let columns = [];
   let width = 0, height = 0, dpr = 1;
@@ -53,7 +55,7 @@
       x,
       // head position in rows; start above the screen at staggered heights
       y: -Math.random() * (height / FONT_SIZE) * 2,
-      speed: 0.6 + Math.random() * 0.9,      // rows per frame
+      speed: MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED),
       trail: TRAIL_LENGTH + (Math.random() * 22) | 0,   // rows of visible trail before full fade
       glyphs: new Map(),                     // row -> glyph currently shown in this column
     };
@@ -139,7 +141,7 @@
       // once the head is fully below the screen, respawn from the top after a random gap
       if (tail * FONT_SIZE > height) {
         col.y = -Math.random() * 30;
-        col.speed = 0.6 + Math.random() * 0.9;
+        col.speed = MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED);
         col.trail = TRAIL_LENGTH + (Math.random() * 22) | 0;
         col.glyphs.clear();
       }
