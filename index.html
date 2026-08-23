@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Matrix Rain</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    cursor: none;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+</style>
+</head>
+<body>
+<canvas id="rain"></canvas>
+<script>
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('rain');
+  const ctx = canvas.getContext('2d');
+
+  // Glyph set: half-width katakana (mirrored like the film), digits, and a few latin chars
+  const KATAKANA = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ';
+  const DIGITS   = '0123456789';
+  const LATIN    = 'Z:・."=*+-<>¦|';
+  const GLYPHS   = (KATAKANA + DIGITS + LATIN).split('');
+
+  const FONT_SIZE = 18;        // css pixels
+  const TRAIL_FADE = 0.075;    // alpha of the black veil each frame; lower = longer trails
+  const MUTATE_CHANCE = 0.02;  // chance per frame that a settled glyph flickers to a new one
+  const FPS = 30;              // classic rain reads better slightly below 60fps
+  const FRAME_MS = 1000 / FPS;
+
+  let columns = [];
+  let width = 0, height = 0, dpr = 1;
+
+  function randomGlyph() {
+    return GLYPHS[(Math.random() * GLYPHS.length) | 0];
+  }
+
+  function makeColumn(x) {
+    return {
+      x,
+      // head position in rows; start above the screen at staggered heights
+      y: -Math.random() * (height / FONT_SIZE) * 2,
+      speed: 0.6 + Math.random() * 0.9,      // rows per frame
+      trail: 8 + (Math.random() * 22) | 0,   // rows of visible trail before full fade
+      glyphs: new Map(),                     // row -> glyph currently shown in this column
+    };
+  }
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `${FONT_SIZE}px "MS Gothic", "Osaka-Mono", "Noto Sans Mono CJK JP", monospace`;
+    ctx.textBaseline = 'top';
+
+    const count = Math.ceil(width / FONT_SIZE);
+    const old = columns;
+    columns = [];
+    for (let i = 0; i < count; i++) {
+      columns.push(old[i] || makeColumn(i * FONT_SIZE));
+      columns[i].x = i * FONT_SIZE;
+    }
+
+    // fresh black slate so stale pixels don't linger after a resize
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  function step() {
+    // self-heal if the viewport changed without a resize event
+    // (e.g. the page loaded in a hidden/background tab with a 0-sized viewport)
+    if (window.innerWidth !== width || window.innerHeight !== height) resize();
+    if (!width || !height) return;
+
+    // translucent black veil fades everything drawn on previous frames
+    ctx.fillStyle = `rgba(0, 0, 0, ${TRAIL_FADE})`;
+    ctx.fillRect(0, 0, width, height);
+
+    const rows = Math.ceil(height / FONT_SIZE);
+
+    for (const col of columns) {
+      const prevRow = Math.floor(col.y);
+      col.y += col.speed;
+      const row = Math.floor(col.y);
+
+      // draw every row the head passed through this frame so fast columns don't skip cells
+      for (let r = Math.max(prevRow + 1, 0); r <= row; r++) {
+        if (r > rows) continue;
+        const glyph = randomGlyph();
+        col.glyphs.set(r, glyph);
+
+        // the cell just behind the head gets repainted green (head itself is white below)
+        if (r > 0 && col.glyphs.has(r - 1)) {
+          ctx.fillStyle = '#0f8';
+          ctx.fillText(col.glyphs.get(r - 1), col.x, (r - 1) * FONT_SIZE);
+        }
+
+        // bright head glyph with a phosphor glow
+        ctx.fillStyle = '#cfc';
+        ctx.shadowColor = '#4f4';
+        ctx.shadowBlur = 8;
+        ctx.fillText(glyph, col.x, r * FONT_SIZE);
+        ctx.shadowBlur = 0;
+      }
+
+      // occasional flicker: a glyph somewhere in the visible trail rewrites itself
+      if (Math.random() < MUTATE_CHANCE * col.trail && row > 0) {
+        const r = row - 1 - ((Math.random() * col.trail) | 0);
+        if (r >= 0 && r <= rows && col.glyphs.has(r)) {
+          const g = randomGlyph();
+          col.glyphs.set(r, g);
+          ctx.fillStyle = '#000';
+          ctx.fillRect(col.x, r * FONT_SIZE, FONT_SIZE, FONT_SIZE);
+          ctx.fillStyle = '#0a6';
+          ctx.fillText(g, col.x, r * FONT_SIZE);
+        }
+      }
+
+      // once the head is fully below the screen, respawn from the top after a random gap
+      if ((row - col.trail) * FONT_SIZE > height) {
+        col.y = -Math.random() * 30;
+        col.speed = 0.6 + Math.random() * 0.9;
+        col.trail = 8 + (Math.random() * 22) | 0;
+        col.glyphs.clear();
+      }
+    }
+  }
+
+  // fixed-timestep loop so the rain falls at the same speed on any refresh rate
+  let last = 0;
+  function loop(now) {
+    requestAnimationFrame(loop);
+    if (now - last < FRAME_MS) return;
+    last = now;
+    step();
+  }
+
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(resize, 100);
+  });
+
+  resize();
+  requestAnimationFrame(loop);
+  window.__matrixStep = step; // manual frame hook (used for headless testing)
+})();
+</script>
+</body>
+</html>
