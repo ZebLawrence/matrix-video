@@ -36,7 +36,6 @@
   const GLYPHS   = (KATAKANA + DIGITS + LATIN).split('');
 
   const FONT_SIZE = 18;        // css pixels
-  const TRAIL_FADE = 0.075;    // alpha of the black veil each frame; lower = longer trails
   const MUTATE_CHANCE = 0.02;  // chance per frame that a settled glyph flickers to a new one
   const FPS = 30;              // classic rain reads better slightly below 60fps
   const FRAME_MS = 1000 / FPS;
@@ -88,8 +87,9 @@
     if (window.innerWidth !== width || window.innerHeight !== height) resize();
     if (!width || !height) return;
 
-    // translucent black veil fades everything drawn on previous frames
-    ctx.fillStyle = `rgba(0, 0, 0, ${TRAIL_FADE})`;
+    // full repaint every frame: trails get their brightness computed from distance
+    // behind the head, so faded glyphs decay to true black with no compositing residue
+    ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, width, height);
 
     const rows = Math.ceil(height / FONT_SIZE);
@@ -99,41 +99,44 @@
       col.y += col.speed;
       const row = Math.floor(col.y);
 
-      // draw every row the head passed through this frame so fast columns don't skip cells
-      for (let r = Math.max(prevRow + 1, 0); r <= row; r++) {
-        if (r > rows) continue;
-        const glyph = randomGlyph();
-        col.glyphs.set(r, glyph);
-
-        // the cell just behind the head gets repainted green (head itself is white below)
-        if (r > 0 && col.glyphs.has(r - 1)) {
-          ctx.fillStyle = '#0f8';
-          ctx.fillText(col.glyphs.get(r - 1), col.x, (r - 1) * FONT_SIZE);
-        }
-
-        // bright head glyph with a phosphor glow
-        ctx.fillStyle = '#cfc';
-        ctx.shadowColor = '#4f4';
-        ctx.shadowBlur = 8;
-        ctx.fillText(glyph, col.x, r * FONT_SIZE);
-        ctx.shadowBlur = 0;
+      // assign a glyph to every row the head passed through so fast columns don't skip cells
+      for (let r = Math.max(prevRow + 1, 0); r <= Math.min(row, rows); r++) {
+        col.glyphs.set(r, randomGlyph());
       }
 
       // occasional flicker: a glyph somewhere in the visible trail rewrites itself
       if (Math.random() < MUTATE_CHANCE * col.trail && row > 0) {
         const r = row - 1 - ((Math.random() * col.trail) | 0);
-        if (r >= 0 && r <= rows && col.glyphs.has(r)) {
-          const g = randomGlyph();
-          col.glyphs.set(r, g);
-          ctx.fillStyle = '#000';
-          ctx.fillRect(col.x, r * FONT_SIZE, FONT_SIZE, FONT_SIZE);
-          ctx.fillStyle = '#0a6';
-          ctx.fillText(g, col.x, r * FONT_SIZE);
+        if (col.glyphs.has(r)) col.glyphs.set(r, randomGlyph());
+      }
+
+      // draw the trail: newest cells brightest, fading smoothly to black at the tail
+      const tail = row - col.trail;
+      for (let r = Math.max(tail, 0); r <= Math.min(row, rows); r++) {
+        const glyph = col.glyphs.get(r);
+        if (!glyph) continue;
+
+        if (r === row) {
+          // bright head glyph with a phosphor glow
+          ctx.fillStyle = '#cfc';
+          ctx.shadowColor = '#4f4';
+          ctx.shadowBlur = 8;
+          ctx.fillText(glyph, col.x, r * FONT_SIZE);
+          ctx.shadowBlur = 0;
+        } else {
+          const a = Math.pow(1 - (row - r) / col.trail, 1.4);
+          ctx.fillStyle = `rgba(0, 255, 136, ${a})`;
+          ctx.fillText(glyph, col.x, r * FONT_SIZE);
         }
       }
 
+      // drop rows that have fully faded out of the trail
+      for (const r of col.glyphs.keys()) {
+        if (r < tail) col.glyphs.delete(r);
+      }
+
       // once the head is fully below the screen, respawn from the top after a random gap
-      if ((row - col.trail) * FONT_SIZE > height) {
+      if (tail * FONT_SIZE > height) {
         col.y = -Math.random() * 30;
         col.speed = 0.6 + Math.random() * 0.9;
         col.trail = 8 + (Math.random() * 22) | 0;
