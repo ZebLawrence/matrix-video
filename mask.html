@@ -69,7 +69,7 @@
   const MUTATE_CHANCE = 0.02;
   const FPS = 30;
   const FRAME_MS = 1000 / FPS;
-  const TRAIL_LENGTH = 88;
+  const TRAIL_LENGTH = 160;
   const MIN_SPEED = 0.2;
   const MAX_SPEED = 2;
   const MASK_FLOOR = 0.04;  // minimum brightness so dark mask areas keep a whisper of rain
@@ -89,10 +89,10 @@
   // column spacing), `offset` shifts columns by a fraction of a cell so two
   // sheets of the same size interleave instead of overlapping.
   const LAYERS = [
-    { size: 12, speedMul: 0.50, alpha: 0.50, glow: 0 },
-    { size: 16, speedMul: 0.80, alpha: 0.75, glow: 0, offset: 0.5 },
-    { size: 20, speedMul: 1.10, alpha: 0.90, glow: 6 },
-    { size: 24, speedMul: 1.50, alpha: 1.00, glow: 8, offset: 0.5 },
+    { size: 18, speedMul: 0.50, alpha: 0.50, glow: 0 },
+    { size: 22, speedMul: 0.80, alpha: 0.75, glow: 0, offset: 0.5 },
+    { size: 28, speedMul: 1.10, alpha: 0.90, glow: 6 },
+    //{ size: 24, speedMul: 1.50, alpha: 1.00, glow: 8, offset: 0.5 },
   ];
 
   let columns = [];
