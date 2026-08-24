@@ -43,8 +43,33 @@
   const MIN_SPEED = 0.2;    // slowest fall, in rows per frame
   const MAX_SPEED = 2;    // fastest fall, in rows per frame
 
+  // the rain slowly cycles console green -> neon blue -> neon red -> green,
+  // spending COLOR_CYCLE seconds on the full loop
+  const COLOR_CYCLE = 90;
+  const PALETTE = [
+    [0, 255, 136],   // console green
+    [0, 160, 255],   // neon blue
+    [255, 50, 80],   // neon red
+  ];
+
   let columns = [];
   let width = 0, height = 0, dpr = 1;
+  let frame = 0;
+
+  // current rain color: smooth-stepped interpolation around the palette loop
+  function cycleColor() {
+    const phase = (frame / FPS % COLOR_CYCLE) / COLOR_CYCLE * PALETTE.length;
+    const i = Math.floor(phase);
+    let u = phase - i;
+    u = u * u * (3 - 2 * u);  // ease so the cycle lingers near each pure color
+    const from = PALETTE[i % PALETTE.length];
+    const to = PALETTE[(i + 1) % PALETTE.length];
+    return [
+      Math.round(from[0] + (to[0] - from[0]) * u),
+      Math.round(from[1] + (to[1] - from[1]) * u),
+      Math.round(from[2] + (to[2] - from[2]) * u),
+    ];
+  }
 
   function randomGlyph() {
     return GLYPHS[(Math.random() * GLYPHS.length) | 0];
@@ -95,6 +120,12 @@
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, width, height);
 
+    frame++;
+    const [cr, cg, cb] = cycleColor();
+    // head glyphs are the rain color pushed 80% toward white; glow is the pure color
+    const headStyle = `rgb(${cr + ((255 - cr) * 0.8 | 0)}, ${cg + ((255 - cg) * 0.8 | 0)}, ${cb + ((255 - cb) * 0.8 | 0)})`;
+    const glowStyle = `rgb(${cr}, ${cg}, ${cb})`;
+
     const rows = Math.ceil(height / FONT_SIZE);
 
     for (const col of columns) {
@@ -121,14 +152,14 @@
 
         if (r === row) {
           // bright head glyph with a phosphor glow
-          ctx.fillStyle = '#cfc';
-          ctx.shadowColor = '#4f4';
+          ctx.fillStyle = headStyle;
+          ctx.shadowColor = glowStyle;
           ctx.shadowBlur = 8;
           ctx.fillText(glyph, col.x, r * FONT_SIZE);
           ctx.shadowBlur = 0;
         } else {
           const a = Math.pow(1 - (row - r) / col.trail, 1.4);
-          ctx.fillStyle = `rgba(0, 255, 136, ${a})`;
+          ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${a})`;
           ctx.fillText(glyph, col.x, r * FONT_SIZE);
         }
       }
