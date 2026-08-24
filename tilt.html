@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Matrix Rain — Tilt</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+  }
+  /* The rain renders on an oversized canvas that slowly rocks back in 3D,
+     pivoting at its bottom edge — like tilting your head up at a wall of
+     falling code. The oversize keeps the tilted plane covering the screen. */
+  .scene {
+    position: fixed;
+    inset: 0;
+    perspective: 1000px;
+    perspective-origin: 50% 30%;
+  }
+  canvas {
+    position: absolute;
+    left: -25vw;
+    top: -35vh;
+    width: 150vw;
+    height: 165vh;
+    transform-origin: 50% 100%;
+    animation: tilt 60s ease-in-out infinite alternate;
+  }
+  @keyframes tilt {
+    from { transform: rotateX(0deg); }
+    to   { transform: rotateX(42deg); }
+  }
+  nav {
+    position: fixed;
+    top: 10px;
+    left: 12px;
+    z-index: 10;
+    font: 12px monospace;
+  }
+  nav a {
+    color: #0f8;
+    opacity: 0.4;
+    text-decoration: none;
+    margin-right: 12px;
+  }
+  nav a:hover { opacity: 1; }
+  nav a.here { opacity: 0.9; text-decoration: underline; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="index.html">baseline</a><a href="layers.html">layers</a><a class="here" href="tilt.html">tilt</a><a href="space.html">3d space</a>
+</nav>
+<div class="scene">
+  <canvas id="rain"></canvas>
+</div>
+<script>
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('rain');
+  const ctx = canvas.getContext('2d');
+
+  const KATAKANA = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ';
+  const DIGITS   = '0123456789';
+  const LATIN    = 'Z:・."=*+-<>¦|';
+  const GLYPHS   = (KATAKANA + DIGITS + LATIN).split('');
+
+  const FONT_SIZE = 18;
+  const MUTATE_CHANCE = 0.02;
+  const FPS = 30;
+  const FRAME_MS = 1000 / FPS;
+  const TRAIL_LENGTH = 88;
+  const MIN_SPEED = 0.2;
+  const MAX_SPEED = 2;
+
+  let columns = [];
+  let width = 0, height = 0, dpr = 1;
+
+  function randomGlyph() {
+    return GLYPHS[(Math.random() * GLYPHS.length) | 0];
+  }
+
+  function makeColumn(x) {
+    return {
+      x,
+      y: -Math.random() * (height / FONT_SIZE) * 2,
+      speed: MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED),
+      trail: TRAIL_LENGTH + (Math.random() * 22) | 0,
+      glyphs: new Map(),
+    };
+  }
+
+  function resize() {
+    // the canvas is CSS-sized larger than the viewport (see .scene styles),
+    // so measure the element itself rather than the window
+    dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    width = canvas.clientWidth;
+    height = canvas.clientHeight;
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `${FONT_SIZE}px "MS Gothic", "Osaka-Mono", "Noto Sans Mono CJK JP", monospace`;
+    ctx.textBaseline = 'top';
+
+    const count = Math.ceil(width / FONT_SIZE);
+    const old = columns;
+    columns = [];
+    for (let i = 0; i < count; i++) {
+      columns.push(old[i] || makeColumn(i * FONT_SIZE));
+      columns[i].x = i * FONT_SIZE;
+    }
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  function step() {
+    if (canvas.clientWidth !== width || canvas.clientHeight !== height) resize();
+    if (!width || !height) return;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+
+    const rows = Math.ceil(height / FONT_SIZE);
+
+    for (const col of columns) {
+      const prevRow = Math.floor(col.y);
+      col.y += col.speed;
+      const row = Math.floor(col.y);
+
+      for (let r = Math.max(prevRow + 1, 0); r <= Math.min(row, rows); r++) {
+        col.glyphs.set(r, randomGlyph());
+      }
+
+      if (Math.random() < MUTATE_CHANCE * col.trail && row > 0) {
+        const r = row - 1 - ((Math.random() * col.trail) | 0);
+        if (col.glyphs.has(r)) col.glyphs.set(r, randomGlyph());
+      }
+
+      const tail = row - col.trail;
+      for (let r = Math.max(tail, 0); r <= Math.min(row, rows); r++) {
+        const glyph = col.glyphs.get(r);
+        if (!glyph) continue;
+
+        if (r === row) {
+          ctx.fillStyle = '#cfc';
+          ctx.shadowColor = '#4f4';
+          ctx.shadowBlur = 8;
+          ctx.fillText(glyph, col.x, r * FONT_SIZE);
+          ctx.shadowBlur = 0;
+        } else {
+          const a = Math.pow(1 - (row - r) / col.trail, 1.4);
+          ctx.fillStyle = `rgba(0, 255, 136, ${a})`;
+          ctx.fillText(glyph, col.x, r * FONT_SIZE);
+        }
+      }
+
+      for (const r of col.glyphs.keys()) {
+        if (r < tail) col.glyphs.delete(r);
+      }
+
+      if (tail * FONT_SIZE > height) {
+        col.y = -Math.random() * 30;
+        col.speed = MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED);
+        col.trail = TRAIL_LENGTH + (Math.random() * 22) | 0;
+        col.glyphs.clear();
+      }
+    }
+  }
+
+  let last = 0;
+  function loop(now) {
+    requestAnimationFrame(loop);
+    if (now - last < FRAME_MS) return;
+    last = now;
+    step();
+  }
+
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(resize, 100);
+  });
+
+  resize();
+  requestAnimationFrame(loop);
+  window.__matrixStep = step; // manual frame hook (used for headless testing)
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Matrix Rain — Depth Layers</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+  nav {
+    position: fixed;
+    top: 10px;
+    left: 12px;
+    z-index: 10;
+    font: 12px monospace;
+  }
+  nav a {
+    color: #0f8;
+    opacity: 0.4;
+    text-decoration: none;
+    margin-right: 12px;
+  }
+  nav a:hover { opacity: 1; }
+  nav a.here { opacity: 0.9; text-decoration: underline; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="index.html">baseline</a><a class="here" href="layers.html">layers</a><a href="tilt.html">tilt</a><a href="space.html">3d space</a>
+</nav>
+<canvas id="rain"></canvas>
+<script>
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('rain');
+  const ctx = canvas.getContext('2d');
+
+  const KATAKANA = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ';
+  const DIGITS   = '0123456789';
+  const LATIN    = 'Z:・."=*+-<>¦|';
+  const GLYPHS   = (KATAKANA + DIGITS + LATIN).split('');
+
+  const MUTATE_CHANCE = 0.02;
+  const FPS = 30;
+  const FRAME_MS = 1000 / FPS;
+  const TRAIL_LENGTH = 88;
+  const MIN_SPEED = 0.2;
+  const MAX_SPEED = 2;
+
+  // Depth layers, drawn back to front. Smaller glyphs read as further away,
+  // so they also fall slower and render dimmer; big foreground columns are
+  // fast and bright with a strong glow.
+  const LAYERS = [
+    { size: 11, speedMul: 0.45, alpha: 0.30, glow: 0,  color: [0, 190, 100], head: 'rgba(150,220,170,0.4)' },
+    { size: 18, speedMul: 1.00, alpha: 0.65, glow: 6,  color: [0, 255, 136], head: 'rgba(204,255,204,0.8)' },
+    { size: 30, speedMul: 1.70, alpha: 1.00, glow: 10, color: [70, 255, 170], head: '#dfd' },
+  ];
+
+  let columns = [];
+  let width = 0, height = 0, dpr = 1;
+
+  function randomGlyph() {
+    return GLYPHS[(Math.random() * GLYPHS.length) | 0];
+  }
+
+  function randomSpeed(layer) {
+    return (MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED)) * layer.speedMul;
+  }
+
+  function makeColumn(layer, x) {
+    return {
+      layer,
+      x,
+      y: -Math.random() * (height / layer.size) * 2,
+      speed: randomSpeed(layer),
+      trail: TRAIL_LENGTH + (Math.random() * 22) | 0,
+      glyphs: new Map(),
+    };
+  }
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textBaseline = 'top';
+
+    columns = [];
+    for (const layer of LAYERS) {
+      const count = Math.ceil(width / layer.size);
+      for (let i = 0; i < count; i++) {
+        columns.push(makeColumn(layer, i * layer.size));
+      }
+    }
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  function step() {
+    if (window.innerWidth !== width || window.innerHeight !== height) resize();
+    if (!width || !height) return;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+
+    let currentSize = 0;
+    for (const col of columns) {
+      const layer = col.layer;
+      if (layer.size !== currentSize) {
+        currentSize = layer.size;
+        ctx.font = `${layer.size}px "MS Gothic", "Osaka-Mono", "Noto Sans Mono CJK JP", monospace`;
+      }
+
+      const rows = Math.ceil(height / layer.size);
+      const prevRow = Math.floor(col.y);
+      col.y += col.speed;
+      const row = Math.floor(col.y);
+
+      for (let r = Math.max(prevRow + 1, 0); r <= Math.min(row, rows); r++) {
+        col.glyphs.set(r, randomGlyph());
+      }
+
+      if (Math.random() < MUTATE_CHANCE * col.trail && row > 0) {
+        const r = row - 1 - ((Math.random() * col.trail) | 0);
+        if (col.glyphs.has(r)) col.glyphs.set(r, randomGlyph());
+      }
+
+      const tail = row - col.trail;
+      const [cr, cg, cb] = layer.color;
+      for (let r = Math.max(tail, 0); r <= Math.min(row, rows); r++) {
+        const glyph = col.glyphs.get(r);
+        if (!glyph) continue;
+
+        if (r === row) {
+          ctx.fillStyle = layer.head;
+          if (layer.glow) {
+            ctx.shadowColor = '#4f4';
+            ctx.shadowBlur = layer.glow;
+          }
+          ctx.fillText(glyph, col.x, r * layer.size);
+          ctx.shadowBlur = 0;
+        } else {
+          const a = Math.pow(1 - (row - r) / col.trail, 1.4) * layer.alpha;
+          ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${a})`;
+          ctx.fillText(glyph, col.x, r * layer.size);
+        }
+      }
+
+      for (const r of col.glyphs.keys()) {
+        if (r < tail) col.glyphs.delete(r);
+      }
+
+      if (tail * layer.size > height) {
+        col.y = -Math.random() * 30;
+        col.speed = randomSpeed(layer);
+        col.trail = TRAIL_LENGTH + (Math.random() * 22) | 0;
+        col.glyphs.clear();
+      }
+    }
+  }
+
+  let last = 0;
+  function loop(now) {
+    requestAnimationFrame(loop);
+    if (now - last < FRAME_MS) return;
+    last = now;
+    step();
+  }
+
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(resize, 100);
+  });
+
+  resize();
+  requestAnimationFrame(loop);
+  window.__matrixStep = step; // manual frame hook (used for headless testing)
+})();
+</script>
+</body>
+</html>
