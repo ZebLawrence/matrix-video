@@ -75,6 +75,8 @@
   const MASK_FLOOR = 0.04;  // minimum brightness so dark mask areas keep a whisper of rain
   const MASK_GAMMA = 3;     // >1 deepens shadows for contrast; <1 lifts midtones
   const MASK_RES = 2;       // mask sample cell in px; all layers share this grid
+  const MASK_BOOST = 0.85;  // how strongly bright mask areas lift trail glyphs
+                            // toward full head brightness (0 = trail fade only)
   const COLOR_CYCLE = 90;
   const PALETTE = [
     [0, 255, 136],   // console green
@@ -305,7 +307,12 @@
           ctx.shadowBlur = 0;
           ctx.globalAlpha = 1;
         } else {
-          const a = Math.pow(1 - (row - r) / col.trail, 1.4) * b * layer.alpha;
+          const trailA = Math.pow(1 - (row - r) / col.trail, 1.4);
+          // bright mask areas lift glyphs toward full head brightness (the
+          // b*b keeps the lift from washing out midtones); dark areas keep
+          // the plain trail fade
+          const boost = MASK_BOOST * b * b;
+          const a = b * layer.alpha * (trailA + (1 - trailA) * boost);
           // skip invisibly faint glyphs — in dark mask zones this saves most
           // of the draw cost, which is what makes this density affordable
           if (a < 0.01) continue;
