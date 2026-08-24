@@ -74,7 +74,7 @@
   const MAX_SPEED = 2;
   const MASK_FLOOR = 0.04;  // minimum brightness so dark mask areas keep a whisper of rain
   const MASK_GAMMA = 3;     // >1 deepens shadows for contrast; <1 lifts midtones
-  const MASK_RES = 8;       // mask sample cell in px; all layers share this grid
+  const MASK_RES = 2;       // mask sample cell in px; all layers share this grid
   const COLOR_CYCLE = 90;
   const PALETTE = [
     [0, 255, 136],   // console green
@@ -124,7 +124,14 @@
     const sx = (iw - sw) / 2, sy = (ih - sh) / 2;
     octx.drawImage(maskSource, sx, sy, sw, sh, 0, 0, maskCols, maskRows);
 
-    const data = octx.getImageData(0, 0, maskCols, maskRows).data;
+    let data;
+    try {
+      data = octx.getImageData(0, 0, maskCols, maskRows).data;
+    } catch (e) {
+      // reading pixels of a file:// image taints the canvas; keep the old mask
+      console.warn('mask image pixels unreadable, keeping previous mask', e);
+      return;
+    }
     mask = new Float32Array(maskCols * maskRows);
     for (let i = 0; i < mask.length; i++) {
       const p = i * 4;
@@ -334,8 +341,16 @@
     resizeTimer = setTimeout(resize, 100);
   });
 
+  // start with the procedural mask so the rain isn't unmasked while the
+  // default image loads, then swap it in (fallback stays if it can't load)
   maskSource = makeDefaultMask();
   resize();
+  const defaultImg = new Image();
+  defaultImg.onload = () => {
+    maskSource = defaultImg;
+    rebuildMask();
+  };
+  defaultImg.src = 'star-wars-millennium-falcon-01.jpg';
   requestAnimationFrame(loop);
   window.__matrixStep = step; // manual frame hook (used for headless testing)
 })();
