@@ -12,14 +12,15 @@
     overflow: hidden;
     background: #000;
   }
-  /* The rain renders on an oversized canvas that slowly rocks back in 3D,
-     pivoting at its bottom edge — like tilting your head up at a wall of
-     falling code. The oversize keeps the tilted plane covering the screen. */
+  /* The rain renders on an oversized canvas that slowly rocks back in 3D.
+     perspective() is part of the transform itself, and the pivot sits at the
+     center of the VISIBLE viewport (the canvas hangs 25vw/35vh past the top
+     left corner, so 50%/51.5% of the canvas is the viewport's center) — the
+     top half recedes toward the vanishing point while the bottom half leans
+     out toward the viewer, like tilting your head up at a wall of code. */
   .scene {
     position: fixed;
     inset: 0;
-    perspective: 1000px;
-    perspective-origin: 50% 30%;
   }
   canvas {
     position: absolute;
@@ -27,12 +28,12 @@
     top: -35vh;
     width: 150vw;
     height: 165vh;
-    transform-origin: 50% 100%;
+    transform-origin: 50% 51.5%;
     animation: tilt 60s ease-in-out infinite alternate;
   }
   @keyframes tilt {
-    from { transform: rotateX(0deg); }
-    to   { transform: rotateX(42deg); }
+    from { transform: perspective(650px) rotateX(0deg); }
+    to   { transform: perspective(650px) rotateX(35deg); }
   }
   nav {
     position: fixed;
