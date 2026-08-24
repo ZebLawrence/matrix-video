@@ -66,7 +66,6 @@
   const LATIN    = 'Z:・."=*+-<>¦|';
   const GLYPHS   = (KATAKANA + DIGITS + LATIN).split('');
 
-  const FONT_SIZE = 18;
   const MUTATE_CHANCE = 0.02;
   const FPS = 30;
   const FRAME_MS = 1000 / FPS;
@@ -74,12 +73,24 @@
   const MIN_SPEED = 0.2;
   const MAX_SPEED = 2;
   const MASK_FLOOR = 0.04;  // minimum brightness so dark mask areas keep a whisper of rain
-  const MASK_GAMMA = 0.6;   // <1 lifts midtones so the image reads through the rain
+  const MASK_GAMMA = 3;     // >1 deepens shadows for contrast; <1 lifts midtones
+  const MASK_RES = 8;       // mask sample cell in px; all layers share this grid
   const COLOR_CYCLE = 90;
   const PALETTE = [
     [0, 255, 136],   // console green
     [0, 160, 255],   // neon blue
     [255, 50, 80],   // neon red
+  ];
+
+  // Every entry is an independent sheet of drop columns — add as many as you
+  // want for more density. `size` is the glyph font size (which also sets the
+  // column spacing), `offset` shifts columns by a fraction of a cell so two
+  // sheets of the same size interleave instead of overlapping.
+  const LAYERS = [
+    { size: 12, speedMul: 0.50, alpha: 0.50, glow: 0 },
+    { size: 16, speedMul: 0.80, alpha: 0.75, glow: 0, offset: 0.5 },
+    { size: 20, speedMul: 1.10, alpha: 0.90, glow: 6 },
+    { size: 24, speedMul: 1.50, alpha: 1.00, glow: 8, offset: 0.5 },
   ];
 
   let columns = [];
@@ -88,16 +99,17 @@
 
   // --- brightness mask -----------------------------------------------------
   // maskSource is any drawable (Image or Canvas). It gets cover-scaled onto a
-  // tiny offscreen canvas with one pixel per glyph cell; mask[] holds the
-  // resulting luminance (0..1) so lookups during drawing are a single index.
+  // small offscreen canvas at MASK_RES px per sample; mask[] holds the
+  // luminance (0..1) and is looked up by pixel position, so every layer reads
+  // the same mask regardless of its glyph size or column offset.
   let maskSource = null;
   let mask = null;
   let maskCols = 0, maskRows = 0;
 
   function rebuildMask() {
     if (!maskSource || !width || !height) return;
-    maskCols = Math.ceil(width / FONT_SIZE);
-    maskRows = Math.ceil(height / FONT_SIZE) + 1;
+    maskCols = Math.ceil(width / MASK_RES);
+    maskRows = Math.ceil(height / MASK_RES);
 
     const off = document.createElement('canvas');
     off.width = maskCols;
@@ -122,10 +134,12 @@
     }
   }
 
-  function maskAt(c, r) {
+  // brightness at a pixel position (row-major grid of MASK_RES px cells)
+  function maskAt(px, py) {
     if (!mask) return 1;
+    const c = (px / MASK_RES) | 0;
+    const r = (py / MASK_RES) | 0;
     if (c < 0 || c >= maskCols || r < 0 || r >= maskRows) return MASK_FLOOR;
-    // ImageData layout is row-major
     return mask[r * maskCols + c];
   }
 
@@ -170,7 +184,7 @@
     if (f && f.type.startsWith('image/')) setMaskImage(f);
   });
 
-  // --- rain (same engine as index.html, brightness scaled by the mask) -----
+  // --- rain (layered engine, brightness scaled by the mask) ----------------
 
   function cycleColor() {
     const phase = (frame / FPS % COLOR_CYCLE) / COLOR_CYCLE * PALETTE.length;
@@ -190,11 +204,16 @@
     return GLYPHS[(Math.random() * GLYPHS.length) | 0];
   }
 
-  function makeColumn(x) {
+  function randomSpeed(layer) {
+    return (MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED)) * layer.speedMul;
+  }
+
+  function makeColumn(layer, x) {
     return {
+      layer,
       x,
-      y: -Math.random() * (height / FONT_SIZE) * 2,
-      speed: MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED),
+      y: -Math.random() * (height / layer.size) * 2,
+      speed: randomSpeed(layer),
       trail: TRAIL_LENGTH + (Math.random() * 22) | 0,
       glyphs: new Map(),
     };
@@ -207,15 +226,15 @@
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.font = `${FONT_SIZE}px "MS Gothic", "Osaka-Mono", "Noto Sans Mono CJK JP", monospace`;
     ctx.textBaseline = 'top';
 
-    const count = Math.ceil(width / FONT_SIZE);
-    const old = columns;
     columns = [];
-    for (let i = 0; i < count; i++) {
-      columns.push(old[i] || makeColumn(i * FONT_SIZE));
-      columns[i].x = i * FONT_SIZE;
+    for (const layer of LAYERS) {
+      const count = Math.ceil(width / layer.size) + 1;
+      const shift = (layer.offset || 0) * layer.size;
+      for (let i = 0; i < count; i++) {
+        columns.push(makeColumn(layer, i * layer.size + shift));
+      }
     }
 
     rebuildMask();
@@ -236,10 +255,16 @@
     const headStyle = `rgb(${cr + ((255 - cr) * 0.8 | 0)}, ${cg + ((255 - cg) * 0.8 | 0)}, ${cb + ((255 - cb) * 0.8 | 0)})`;
     const glowStyle = `rgb(${cr}, ${cg}, ${cb})`;
 
-    const rows = Math.ceil(height / FONT_SIZE);
+    let currentSize = 0;
+    for (const col of columns) {
+      const layer = col.layer;
+      const size = layer.size;
+      if (size !== currentSize) {
+        currentSize = size;
+        ctx.font = `${size}px "MS Gothic", "Osaka-Mono", "Noto Sans Mono CJK JP", monospace`;
+      }
 
-    for (let ci = 0; ci < columns.length; ci++) {
-      const col = columns[ci];
+      const rows = Math.ceil(height / size);
       const prevRow = Math.floor(col.y);
       col.y += col.speed;
       const row = Math.floor(col.y);
@@ -254,26 +279,31 @@
       }
 
       const tail = row - col.trail;
+      const cx2 = col.x + size / 2;  // sample the mask at each glyph's center
       for (let r = Math.max(tail, 0); r <= Math.min(row, rows); r++) {
         const glyph = col.glyphs.get(r);
         if (!glyph) continue;
 
-        const b = maskAt(ci, r);
+        const b = maskAt(cx2, r * size + size / 2);
         if (r === row) {
-          // head brightness follows the mask; the glow only survives in bright areas
-          ctx.globalAlpha = b;
+          const a = b * layer.alpha;
+          if (a < 0.01) continue;
+          ctx.globalAlpha = a;
           ctx.fillStyle = headStyle;
-          if (b > 0.3) {
+          if (layer.glow && b > 0.3) {
             ctx.shadowColor = glowStyle;
-            ctx.shadowBlur = 8 * b;
+            ctx.shadowBlur = layer.glow * b;
           }
-          ctx.fillText(glyph, col.x, r * FONT_SIZE);
+          ctx.fillText(glyph, col.x, r * size);
           ctx.shadowBlur = 0;
           ctx.globalAlpha = 1;
         } else {
-          const a = Math.pow(1 - (row - r) / col.trail, 1.4) * b;
+          const a = Math.pow(1 - (row - r) / col.trail, 1.4) * b * layer.alpha;
+          // skip invisibly faint glyphs — in dark mask zones this saves most
+          // of the draw cost, which is what makes this density affordable
+          if (a < 0.01) continue;
           ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${a})`;
-          ctx.fillText(glyph, col.x, r * FONT_SIZE);
+          ctx.fillText(glyph, col.x, r * size);
         }
       }
 
@@ -281,9 +311,9 @@
         if (r < tail) col.glyphs.delete(r);
       }
 
-      if (tail * FONT_SIZE > height) {
+      if (tail * size > height) {
         col.y = -Math.random() * 30;
-        col.speed = MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED);
+        col.speed = randomSpeed(layer);
         col.trail = TRAIL_LENGTH + (Math.random() * 22) | 0;
         col.glyphs.clear();
       }
